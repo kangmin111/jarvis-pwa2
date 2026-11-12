@@ -5,12 +5,13 @@ exports.handler = async function (event) {
 
   try {
     const { userCommand, chatHistory = [] } = JSON.parse(event.body);
-    const apiKey = process.env.GEMINI_API_KEY;
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const groqApiKey = process.env.GROQ_API_KEY;
 
-    if (!apiKey) {
+    if (!geminiApiKey && !groqApiKey) {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: 'Netlify 환경 변수에 GEMINI_API_KEY가 설정되지 않았습니다.' })
+        body: JSON.stringify({ error: 'Netlify 환경 변수에 API 키가 설정되지 않았습니다.' })
       };
     }
 
@@ -33,45 +34,92 @@ ${historyText}
    - 예: "유튜브에서 아이언맨 명장면 찾아줘" -> {"action": "OPEN_URL", "url": "https://www.youtube.com/results?search_query=아이언맨+명장면", "reply": "유튜브에서 아이언맨 명장면 바로 찾아드릴게요."}
 2. 웹사이트를 열 필요가 없는 일상 대화, 고민 상담, 농담, 지식 질문이면 "action"을 "CHAT"으로 설정하고 "url"은 null로 둔 뒤, 음성으로 들었을 때 가장 자연스럽고 친근한 1~2문장으로 대답해라. (특수문자, 별표, 이모티콘은 음성 합성에 방해되니 절대 쓰지 마라.)
 
-현재 사용자 말: "${userCommand}"
+반드시 아래 JSON 형식으로만 응답해라:
+{"action": "OPEN_URL" 또는 "CHAT", "url": "https://..." 또는 null, "reply": "자비스의 한국어 대답"}
 `;
 
-    // 가장 빠르고 안정적인 2개 모델에 각각 4.5초씩 여유 부여
-    const models = [
-      'gemini-3.5-flash-lite',
-      'gemini-3.8-flash'
-    ];
+    let lastError = 'AI 서버 호출 실패';
 
-    let lastError = 'Google API 호출 실패';
+    // 1단계: Google Gemini 서버 시도 (모델당 2.2초 빠른 타임아웃)
+    if (geminiApiKey) {
+      const geminiModels = [
+        'gemini-2.5-flash-lite',
+        'gemini-2.5-flash',
+        'gemini-3.5-flash-lite'
+      ];
 
-    for (const model of models) {
+      for (const model of geminiModels) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2200);
+
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': geminiApiKey
+              },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: `${systemPrompt}\n\n현재 사용자 말: "${userCommand}"` }] }],
+                generationConfig: {
+                  responseMimeType: 'application/json'
+                }
+              }),
+              signal: controller.signal
+            }
+          );
+
+          clearTimeout(timeoutId);
+          const data = await response.json();
+
+          if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+            const rawText = data.candidates[0].content.parts[0].text.trim();
+            return {
+              statusCode: 200,
+              headers: { 'Content-Type': 'application/json' },
+              body: rawText
+            };
+          }
+
+          lastError = data.error?.message || `Gemini(${model}) 오류`;
+        } catch (err) {
+          clearTimeout(timeoutId);
+          lastError = err.name === 'AbortError' ? `${model} 응답 지연` : err.message;
+        }
+      }
+    }
+
+    // 2단계: 구글 서버가 혼잡(high demand)하거나 지연되면 즉시 Groq 초고속 백업 엔진 실행
+    if (groqApiKey) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
 
       try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-goog-api-key': apiKey
-            },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: systemPrompt }] }],
-              generationConfig: {
-                responseMimeType: 'application/json'
-              }
-            }),
-            signal: controller.signal
-          }
-        );
+        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${groqApiKey}`
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userCommand }
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.7
+          }),
+          signal: controller.signal
+        });
 
         clearTimeout(timeoutId);
-        const data = await response.json();
+        const groqData = await groqResponse.json();
 
-        if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-          const rawText = data.candidates[0].content.parts[0].text.trim();
+        if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
+          const rawText = groqData.choices[0].message.content.trim();
           return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -79,10 +127,10 @@ ${historyText}
           };
         }
 
-        lastError = data.error?.message || `모델(${model}) 응답 오류`;
+        lastError = groqData.error?.message || 'Groq 백업 서버 오류';
       } catch (err) {
         clearTimeout(timeoutId);
-        lastError = err.name === 'AbortError' ? `${model} 응답 지연` : err.message;
+        lastError = err.name === 'AbortError' ? 'Groq 응답 지연' : err.message;
       }
     }
 
