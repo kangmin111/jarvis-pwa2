@@ -31,39 +31,51 @@ exports.handler = async function (event) {
 사용자 말: "${userCommand}"
 `;
 
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: systemPrompt }] }],
-          generationConfig: {
-            responseMimeType: 'application/json'
-          }
-        })
+    // 1순위 모델이 혼잡할 경우 자동으로 2, 3순위 예비 모델로 전환
+    const models = [
+      'gemini-3.8-flash',
+      'gemini-3.8-flash-lite',
+      'gemini-2.5-flash-lite'
+    ];
+
+    let lastError = 'Google API 호출 실패';
+
+    for (const model of models) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: systemPrompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json'
+            }
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        const rawText = data.candidates[0].content.parts[0].text.trim();
+        return {
+          statusCode: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: rawText
+        };
       }
-    );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Gemini API Error:', data);
-      return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: data.error?.message || 'Google API 호출 실패' })
-      };
+      lastError = data.error?.message || `모델(${model}) 응답 오류`;
+      console.warn(`${model} 실패, 다음 예비 모델로 재시도:`, lastError);
     }
 
-    const rawText = data.candidates[0].content.parts[0].text.trim();
-
     return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: rawText
+      statusCode: 503,
+      body: JSON.stringify({ error: lastError })
     };
   } catch (error) {
     console.error('Server Error:', error);
