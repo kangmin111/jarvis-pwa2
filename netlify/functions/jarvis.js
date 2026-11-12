@@ -14,7 +14,6 @@ exports.handler = async function (event) {
       };
     }
 
-    // 이전 대화 기록을 읽기 좋은 텍스트로 변환
     const historyText = chatHistory.length > 0
       ? chatHistory.map((item) => `${item.role === 'user' ? '사용자' : '자비스'}: ${item.text}`).join('\n')
       : '이전 대화 없음';
@@ -27,7 +26,6 @@ exports.handler = async function (event) {
 ${historyText}
 
 위 [최근 대화 기록]의 문맥을 반드시 참고해서, 사용자가 "그거", "거기서", "방금 말한 거", "다시 찾아줘"처럼 생략해서 말해도 무슨 뜻인지 정확히 연결해 처리해라.
-예를 들어 직전에 아이언맨에 대해 대화했다면, "유튜브에서 명장면 찾아줘"라고 했을 때 검색어를 "아이언맨+명장면"으로 완성해라.
 
 규칙:
 1. 웹사이트를 열거나 검색을 해줘야 하는 의도라면 "action"을 "OPEN_URL"로 설정하고 "url"에 정확한 https:// 주소를 넣어라.
@@ -38,9 +36,9 @@ ${historyText}
 현재 사용자 말: "${userCommand}"
 `;
 
+    // 가장 빠르고 안정적인 2개 모델에 각각 4.5초씩 여유 부여
     const models = [
       'gemini-3.5-flash-lite',
-      'gemini-3.5-flash',
       'gemini-3.8-flash'
     ];
 
@@ -48,7 +46,7 @@ ${historyText}
 
     for (const model of models) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
 
       try {
         const response = await fetch(
@@ -82,7 +80,6 @@ ${historyText}
         }
 
         lastError = data.error?.message || `모델(${model}) 응답 오류`;
-        await new Promise((r) => setTimeout(r, 600));
       } catch (err) {
         clearTimeout(timeoutId);
         lastError = err.name === 'AbortError' ? `${model} 응답 지연` : err.message;
