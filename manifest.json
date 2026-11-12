@@ -1,0 +1,15 @@
+{
+  "name": "JARVIS AI Assistant",
+  "short_name": "JARVIS",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0a0e17",
+  "theme_color": "#00d8ff",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      background-color: #0a0e17;
+      color: #00d8ff;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      text-align: center;
+    }
+    .core {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      border: 4px solid #00d8ff;
+      box-shadow: 0 0 25px #00d8ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.2rem;
+      margin-bottom: 30px;
+      transition: all 0.3s ease;
+    }
+    .listening {
+      box-shadow: 0 0 50px #00ff88;
+      border-color: #00ff88;
+      color: #00ff88;
+    }
+    .thinking {
+      box-shadow: 0 0 50px #ffaa00;
+      border-color: #ffaa00;
+      color: #ffaa00;
+    }
+    button {
+      background: transparent;
+      color: #00d8ff;
+      border: 2px solid #00d8ff;
+      padding: 12px 24px;
+      font-size: 1rem;
+      cursor: pointer;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #00d8ff;
+      color: #0a0e17;
+    }
+    #log {
+      margin-top: 25px;
+      color: #a0c4ff;
+      max-width: 85%;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="core" id="core">STANDBY</div>
+  <button id="startBtn">자비스 시스템 가동</button>
+  <p id="log">가동 버튼을 눌러 시스템을 활성화하세요.</p>
+
+  <script src="app.js"></script>
+</body>
+</html>
