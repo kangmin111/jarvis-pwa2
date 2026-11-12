@@ -31,45 +31,55 @@ exports.handler = async function (event) {
 사용자 말: "${userCommand}"
 `;
 
-    // 1순위 모델이 혼잡할 경우 자동으로 2순위 최신 lite 모델로 전환
+    // 응답이 가장 빠른 lite 모델을 1순위로 배치
     const models = [
-      'gemini-3.8-flash',
-      'gemini-3.5-flash-lite'
+      'gemini-3.5-flash-lite',
+      'gemini-3.8-flash'
     ];
 
     let lastError = 'Google API 호출 실패';
 
     for (const model of models) {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: systemPrompt }] }],
-            generationConfig: {
-              responseMimeType: 'application/json'
-            }
-          })
+      // 모델당 최대 4.5초만 기다려서 Netlify 10초 제한(502 에러) 방지
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: systemPrompt }] }],
+              generationConfig: {
+                responseMimeType: 'application/json'
+              }
+            }),
+            signal: controller.signal
+          }
+        );
+
+        clearTimeout(timeoutId);
+        const data = await response.json();
+
+        if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          const rawText = data.candidates[0].content.parts[0].text.trim();
+          return {
+            statusCode: 200,
+            headers: { 'Content-Type': 'application/json' },
+            body: rawText
+          };
         }
-      );
 
-      const data = await response.json();
-
-      if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        const rawText = data.candidates[0].content.parts[0].text.trim();
-        return {
-          statusCode: 200,
-          headers: { 'Content-Type': 'application/json' },
-          body: rawText
-        };
+        lastError = data.error?.message || `모델(${model}) 응답 오류`;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        lastError = err.name === 'AbortError' ? `${model} 응답 지연` : err.message;
       }
-
-      lastError = data.error?.message || `모델(${model}) 응답 오류`;
-      console.warn(`${model} 실패, 다음 예비 모델로 재시도:`, lastError);
     }
 
     return {
