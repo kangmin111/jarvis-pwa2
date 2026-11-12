@@ -8,7 +8,6 @@ const muteBtn = document.getElementById('muteBtn');
 const log = document.getElementById('log');
 const clockEl = document.getElementById('clock');
 
-// 상단 실시간 HUD 시계
 function updateClock() {
   const now = new Date();
   clockEl.innerText = now.toTimeString().split(' ')[0];
@@ -16,11 +15,53 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// HUD 테마 상태 변경 함수
 function setHudState(state, label) {
   document.body.className = `state-${state}`;
   core.innerText = label;
 }
+
+let audioCtx = null;
+let wakeLock = null;
+
+async function enableBackgroundKeepAlive() {
+  try {
+    if (!audioCtx) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0.0001;
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.start();
+    }
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+  } catch (e) {
+    console.warn('오디오 유지 초기화 실패:', e);
+  }
+
+  try {
+    if ('wakeLock' in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => {
+        wakeLock = null;
+      });
+    }
+  } catch (e) {
+    console.warn('WakeLock 지원 안 됨 또는 거부됨:', e);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (isSystemActive && !isMuted) {
+    enableBackgroundKeepAlive();
+    try {
+      recognition.start();
+    } catch (e) {}
+  }
+});
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
@@ -31,6 +72,16 @@ recognition.interimResults = false;
 let isSystemActive = false;
 let isMuted = false;
 let isSpeaking = false;
+
+// ★ 최근 대화 문맥을 저장하는 배열 (최대 6개 메시지 유지)
+let chatHistory = [];
+
+function addToHistory(role, text) {
+  chatHistory.push({ role, text });
+  if (chatHistory.length > 6) {
+    chatHistory.shift(); // 가장 오래된 기억 1개 삭제
+  }
+}
 
 function getNaturalVoice() {
   const voices = window.speechSynthesis.getVoices();
@@ -72,23 +123,42 @@ function speak(text) {
 }
 
 function handleInstantCommand(command) {
+  // 대화 기억 초기화 명령
+  if (command.includes('기억 지워') || command.includes('대화 초기화') || command.includes('기억 초기화')) {
+    chatHistory = [];
+    speak('네, 방금까지 나눈 대화 기억을 깨끗하게 비웠어요.');
+    return true;
+  }
+
   if (command.includes('유튜브') && !command.includes('검색') && !command.includes('찾아')) {
-    speak('네, 바로 유튜브 열어드릴게요!');
+    const reply = '네, 바로 유튜브 열어드릴게요!';
+    addToHistory('user', command);
+    addToHistory('jarvis', reply);
+    speak(reply);
     window.open('https://www.youtube.com', '_blank');
     return true;
   }
   if (command.includes('지메일') || command.includes('메일')) {
-    speak('네, 지메일 확인하실 수 있게 열어드렸어요.');
+    const reply = '네, 지메일 확인하실 수 있게 열어드렸어요.';
+    addToHistory('user', command);
+    addToHistory('jarvis', reply);
+    speak(reply);
     window.open('https://mail.google.com', '_blank');
     return true;
   }
   if (command.includes('네이버') && !command.includes('검색') && !command.includes('찾아')) {
-    speak('네이버 화면 띄워드렸습니다.');
+    const reply = '네이버 화면 띄워드렸습니다.';
+    addToHistory('user', command);
+    addToHistory('jarvis', reply);
+    speak(reply);
     window.open('https://www.naver.com', '_blank');
     return true;
   }
   if (command.includes('구글') && !command.includes('검색') && !command.includes('찾아')) {
-    speak('구글 페이지 열어드렸어요.');
+    const reply = '구글 페이지 열어드렸어요.';
+    addToHistory('user', command);
+    addToHistory('jarvis', reply);
+    speak(reply);
     window.open('https://www.google.com', '_blank');
     return true;
   }
@@ -105,7 +175,8 @@ async function askJarvisBrain(userCommand) {
     const response = await fetch('/.netlify/functions/jarvis', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userCommand })
+      // ★ 현재 명령과 함께 이전 대화 기록(chatHistory)을 서버로 전송
+      body: JSON.stringify({ userCommand, chatHistory })
     });
 
     const data = await response.json();
@@ -113,6 +184,10 @@ async function askJarvisBrain(userCommand) {
     if (!response.ok) {
       throw new Error(data.error || `서버 오류 (${response.status})`);
     }
+
+    // ★ 대화가 성공하면 이번 질문과 자비스의 대답도 기억에 추가
+    addToHistory('user', userCommand);
+    addToHistory('jarvis', data.reply);
 
     speak(data.reply);
 
@@ -156,17 +231,22 @@ recognition.onresult = (event) => {
 
 recognition.onend = () => {
   if (isSystemActive && !isMuted) {
-    recognition.start();
+    setTimeout(() => {
+      try {
+        recognition.start();
+      } catch (e) {}
+    }, 300);
   }
 };
 
 startBtn.addEventListener('click', () => {
   isSystemActive = true;
+  enableBackgroundKeepAlive();
   recognition.start();
   startBtn.style.display = 'none';
   muteBtn.style.display = 'inline-block';
   setHudState('listening', 'ONLINE');
-  speak('자비스 홀로그램 인터페이스가 가동되었습니다. 편하게 말씀해 주세요.');
+  speak('자비스 시스템이 준비되었습니다. 이제 이전 대화도 기억하면서 대답할게요.');
 });
 
 muteBtn.addEventListener('click', () => {
@@ -177,6 +257,7 @@ muteBtn.addEventListener('click', () => {
     setHudState('muted', 'MUTED');
     log.innerText = 'JARVIS: 마이크가 일시정지되었습니다.';
   } else {
+    enableBackgroundKeepAlive();
     recognition.start();
     muteBtn.innerText = '마이크 일시정지';
     setHudState('listening', 'ONLINE');
