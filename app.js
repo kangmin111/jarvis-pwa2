@@ -48,7 +48,36 @@ function speak(text) {
   window.speechSynthesis.speak(utterance);
 }
 
+// 서버 혼잡과 무관하게 0.1초 만에 즉시 실행되는 기본 단축 명령
+function handleInstantCommand(command) {
+  if (command.includes('유튜브') && !command.includes('검색') && !command.includes('찾아')) {
+    speak('네, 바로 유튜브 열어드릴게요!');
+    window.open('https://www.youtube.com', '_blank');
+    return true;
+  }
+  if (command.includes('지메일') || command.includes('메일')) {
+    speak('네, 지메일 확인하실 수 있게 열어드렸어요.');
+    window.open('https://mail.google.com', '_blank');
+    return true;
+  }
+  if (command.includes('네이버') && !command.includes('검색') && !command.includes('찾아')) {
+    speak('네이버 화면 띄워드렸습니다.');
+    window.open('https://www.naver.com', '_blank');
+    return true;
+  }
+  if (command.includes('구글') && !command.includes('검색') && !command.includes('찾아')) {
+    speak('구글 페이지 열어드렸어요.');
+    window.open('https://www.google.com', '_blank');
+    return true;
+  }
+  return false;
+}
+
 async function askJarvisBrain(userCommand) {
+  // 1. 기본 사이트 열기 명령이면 서버 안 거치고 즉시 실행
+  if (handleInstantCommand(userCommand)) return;
+
+  // 2. 일반 대화나 검색 명령은 AI 두뇌 서버로 전송
   core.innerText = 'THINKING';
   core.classList.remove('listening');
   core.classList.add('thinking');
@@ -74,8 +103,13 @@ async function askJarvisBrain(userCommand) {
     }
   } catch (error) {
     console.error('상세 오류:', error);
-    log.innerText = `오류 원인: ${error.message}`;
-    speak(`오류가 발생했어요. ${error.message}`);
+    if (error.message.includes('high demand')) {
+      log.innerText = '구글 AI 서버 일시 혼잡 - 잠시 후 다시 말씀해 주세요.';
+      speak('지금 구글 AI 서버에 접속자가 너무 많아서 잠깐 막혔어요. 몇 초 뒤에 다시 말씀해 주실래요?');
+    } else {
+      log.innerText = `오류 원인: ${error.message}`;
+      speak(`오류가 발생했어요. ${error.message}`);
+    }
   } finally {
     core.innerText = 'ONLINE';
     core.classList.remove('thinking');
@@ -83,7 +117,6 @@ async function askJarvisBrain(userCommand) {
   }
 }
 
-// "자비스" 호출어 없이 말하면 바로 실행
 recognition.onresult = (event) => {
   if (isSpeaking) return;
 
@@ -91,7 +124,6 @@ recognition.onresult = (event) => {
   const transcript = event.results[lastIndex][0].transcript.trim();
   console.log('인식된 음성:', transcript);
 
-  // 습관적으로 "자비스"라고 먼저 불렀을 경우 앞부분만 깔끔하게 정리
   const cleanCommand = transcript.replace(/^자\s*비스[,\s]*/, '').trim();
 
   if (cleanCommand.length === 0) {
@@ -118,5 +150,5 @@ startBtn.addEventListener('click', () => {
   startBtn.style.display = 'none';
   core.innerText = 'ONLINE';
   core.classList.add('listening');
-  speak('자비스 시스템이 준비됐어요. 이제 부르지 않고 바로 말씀하셔도 됩니다.');
+  speak('자비스 시스템이 준비됐어요. 편하게 말씀해 주세요.');
 });
