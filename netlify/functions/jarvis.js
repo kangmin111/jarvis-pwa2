@@ -31,18 +31,18 @@ exports.handler = async function (event) {
 사용자 말: "${userCommand}"
 `;
 
-    // 응답이 가장 빠른 lite 모델을 1순위로 배치
+    // 혼잡을 피하기 위한 3중 모델 로테이션
     const models = [
       'gemini-3.5-flash-lite',
+      'gemini-3.5-flash',
       'gemini-3.8-flash'
     ];
 
     let lastError = 'Google API 호출 실패';
 
     for (const model of models) {
-      // 모델당 최대 4.5초만 기다려서 Netlify 10초 제한(502 에러) 방지
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
 
       try {
         const response = await fetch(
@@ -76,6 +76,8 @@ exports.handler = async function (event) {
         }
 
         lastError = data.error?.message || `모델(${model}) 응답 오류`;
+        // 혼잡 오류(503)면 0.6초 잠깐 대기 후 다음 모델 시도
+        await new Promise((r) => setTimeout(r, 600));
       } catch (err) {
         clearTimeout(timeoutId);
         lastError = err.name === 'AbortError' ? `${model} 응답 지연` : err.message;
