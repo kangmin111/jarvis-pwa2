@@ -40,7 +40,7 @@ ${historyText}
 
     let lastError = 'AI 서버 호출 실패';
 
-    // 1단계: Google Gemini 서버 시도 (모델당 2.2초 빠른 타임아웃)
+    // 1단계: Google Gemini 서버 시도
     if (geminiApiKey) {
       const geminiModels = [
         'gemini-2.5-flash-lite',
@@ -91,45 +91,64 @@ ${historyText}
       }
     }
 
-    // 2단계: 구글 서버가 혼잡(high demand)하거나 지연되면 즉시 Groq 초고속 백업 엔진 실행
+    // 2단계: Groq 백업 엔진 (현재 내 계정에서 사용 가능한 채팅 모델을 자동 조회해 선택)
     if (groqApiKey) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-
       try {
-        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${groqApiKey}`
-          },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userCommand }
-            ],
-            response_format: { type: 'json_object' },
-            temperature: 0.7
-          }),
-          signal: controller.signal
+        const modelsRes = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { 'Authorization': `Bearer ${groqApiKey}` }
         });
+        const modelsData = await modelsRes.json();
 
-        clearTimeout(timeoutId);
-        const groqData = await groqResponse.json();
+        // 음성 인식(whisper)이나 가드 모델을 제외한 일반 텍스트 대화 모델 중 최적 모델 자동 선택
+        const availableModels = (modelsData.data || [])
+          .map((m) => m.id)
+          .filter((id) => !id.includes('whisper') && !id.includes('guard') && !id.includes('tts'));
 
-        if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
-          const rawText = groqData.choices[0].message.content.trim();
-          return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: rawText
-          };
+        const selectedGroqModel =
+          availableModels.find((id) => id.includes('llama-3.3') || id.includes('llama-4')) ||
+          availableModels.find((id) => id.includes('llama')) ||
+          availableModels.find((id) => id.includes('qwen') || id.includes('gemma')) ||
+          availableModels[0];
+
+        if (selectedGroqModel) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+          const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${groqApiKey}`
+            },
+            body: JSON.stringify({
+              model: selectedGroqModel,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userCommand }
+              ],
+              response_format: { type: 'json_object' },
+              temperature: 0.7
+            }),
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+          const groqData = await groqResponse.json();
+
+          if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
+            const rawText = groqData.choices[0].message.content.trim();
+            return {
+              statusCode: 200,
+              headers: { 'Content-Type': 'application/json' },
+              body: rawText
+            };
+          }
+
+          lastError = groqData.error?.message || `Groq(${selectedGroqModel}) 오류`;
+        } else {
+          lastError = 'Groq에서 사용 가능한 대화 모델을 찾지 못했습니다.';
         }
-
-        lastError = groqData.error?.message || 'Groq 백업 서버 오류';
       } catch (err) {
-        clearTimeout(timeoutId);
         lastError = err.name === 'AbortError' ? 'Groq 응답 지연' : err.message;
       }
     }
