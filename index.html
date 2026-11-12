@@ -3,71 +3,293 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JARVIS</title>
+  <title>J.A.R.V.I.S. HUD</title>
   <link rel="manifest" href="manifest.json">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+    :root {
+      --primary: #00e5ff;
+      --listening: #00ff9d;
+      --thinking: #ffae00;
+      --speaking: #38bdf8;
+      --muted: #ff4757;
+      --bg: #050a14;
+      --current-color: var(--primary);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
-      background-color: #0a0e17;
-      color: #00d8ff;
-      font-family: 'Segoe UI', sans-serif;
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(circle at 50% 45%, rgba(0, 229, 255, 0.12) 0%, transparent 60%),
+        linear-gradient(rgba(0, 229, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 229, 255, 0.04) 1px, transparent 1px);
+      background-size: 100% 100%, 40px 40px, 40px 40px;
+      color: var(--current-color);
+      font-family: 'Noto Sans KR', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px;
+      transition: color 0.4s ease;
+    }
+
+    /* 상단 HUD 상태 바 */
+    .hud-header {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(0, 229, 255, 0.25);
+      padding-bottom: 12px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.85rem;
+      letter-spacing: 1.5px;
+    }
+
+    .hud-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--current-color);
+      box-shadow: 0 0 10px var(--current-color);
+      animation: pulse 1.5s infinite;
+    }
+
+    /* 중앙 아크 리액터 코어 */
+    .reactor-wrapper {
+      position: relative;
+      width: 260px;
+      height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 10px 0;
+    }
+
+    .ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      transition: all 0.4s ease;
+    }
+
+    .ring-outer {
+      width: 250px;
+      height: 250px;
+      border-top: 3px solid var(--current-color);
+      border-bottom: 3px solid var(--current-color);
+      border-left: 1px dashed rgba(0, 229, 255, 0.3);
+      border-right: 1px dashed rgba(0, 229, 255, 0.3);
+      animation: spinRight 12s linear infinite;
+    }
+
+    .ring-middle {
+      width: 205px;
+      height: 205px;
+      border-left: 4px solid var(--current-color);
+      border-right: 4px solid var(--current-color);
+      opacity: 0.8;
+      animation: spinLeft 7s linear infinite;
+    }
+
+    .ring-inner {
+      width: 165px;
+      height: 165px;
+      border: 2px dotted var(--current-color);
+      animation: spinRight 20s linear infinite;
+    }
+
+    .core-center {
+      width: 130px;
+      height: 130px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0, 229, 255, 0.25) 0%, rgba(5, 10, 20, 0.9) 75%);
+      border: 2px solid var(--current-color);
+      box-shadow: 0 0 30px var(--current-color), inset 0 0 20px var(--current-color);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 100vh;
-      margin: 0;
-      text-align: center;
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 2px;
+      z-index: 2;
+      transition: all 0.3s ease;
     }
-    .core {
-      width: 150px;
-      height: 150px;
-      border-radius: 50%;
-      border: 4px solid #00d8ff;
-      box-shadow: 0 0 25px #00d8ff;
+
+    /* 상태별 테마 클래스 */
+    body.state-listening { --current-color: var(--listening); }
+    body.state-thinking  { --current-color: var(--thinking); }
+    body.state-speaking  { --current-color: var(--speaking); }
+    body.state-muted     { --current-color: var(--muted); }
+
+    body.state-thinking .ring-outer { animation-duration: 2s; }
+    body.state-thinking .ring-middle { animation-duration: 1.2s; }
+    body.state-speaking .core-center { transform: scale(1.06); }
+
+    /* 오디오 이퀄라이저 파형 */
+    .equalizer {
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: bold;
-      font-size: 1.2rem;
-      margin-bottom: 30px;
-      transition: all 0.3s ease;
+      gap: 6px;
+      height: 36px;
+      margin-top: 12px;
     }
-    .listening {
-      box-shadow: 0 0 50px #00ff88;
-      border-color: #00ff88;
-      color: #00ff88;
+
+    .bar {
+      width: 4px;
+      height: 8px;
+      background: var(--current-color);
+      border-radius: 2px;
+      box-shadow: 0 0 8px var(--current-color);
+      transition: height 0.15s ease;
     }
-    .thinking {
-      box-shadow: 0 0 50px #ffaa00;
-      border-color: #ffaa00;
-      color: #ffaa00;
+
+    body.state-listening .bar,
+    body.state-speaking .bar {
+      animation: wave 0.9s ease-in-out infinite;
     }
-    button {
-      background: transparent;
-      color: #00d8ff;
-      border: 2px solid #00d8ff;
-      padding: 12px 24px;
-      font-size: 1rem;
-      cursor: pointer;
-      border-radius: 8px;
-      font-weight: bold;
+    .bar:nth-child(2) { animation-delay: 0.1s; }
+    .bar:nth-child(3) { animation-delay: 0.25s; }
+    .bar:nth-child(4) { animation-delay: 0.4s; }
+    .bar:nth-child(5) { animation-delay: 0.15s; }
+    .bar:nth-child(6) { animation-delay: 0.35s; }
+    .bar:nth-child(7) { animation-delay: 0.2s; }
+
+    /* 대화 로그 박스 */
+    .hud-console {
+      width: 100%;
+      max-width: 680px;
+      background: rgba(8, 18, 36, 0.75);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      border-left: 4px solid var(--current-color);
+      border-radius: 6px;
+      padding: 18px 22px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 0 25px rgba(0, 0, 0, 0.6);
+      text-align: left;
     }
-    button:hover {
-      background: #00d8ff;
-      color: #0a0e17;
+
+    .console-label {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.7rem;
+      opacity: 0.7;
+      margin-bottom: 6px;
+      letter-spacing: 1px;
     }
+
     #log {
-      margin-top: 25px;
-      color: #a0c4ff;
-      max-width: 85%;
-      line-height: 1.5;
+      color: #e0f7ff;
+      font-size: 1.05rem;
+      line-height: 1.6;
+      word-break: keep-all;
+    }
+
+    /* 하단 컨트롤 버튼 */
+    .controls {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+
+    button {
+      background: rgba(0, 229, 255, 0.08);
+      color: var(--current-color);
+      border: 1.5px solid var(--current-color);
+      padding: 12px 26px;
+      font-family: 'Noto Sans KR', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      border-radius: 4px;
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.15);
+      transition: all 0.25s ease;
+    }
+
+    button:hover {
+      background: var(--current-color);
+      color: #050a14;
+      box-shadow: 0 0 25px var(--current-color);
+    }
+
+    #muteBtn {
+      display: none;
+    }
+
+    @keyframes spinRight {
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes spinLeft {
+      100% { transform: rotate(-360deg); }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    @keyframes wave {
+      0%, 100% { height: 8px; }
+      50% { height: 32px; }
     }
   </style>
 </head>
 <body>
-  <div class="core" id="core">STANDBY</div>
-  <button id="startBtn">자비스 시스템 가동</button>
-  <p id="log">가동 버튼을 눌러 시스템을 활성화하세요.</p>
+
+  <div class="hud-header">
+    <div class="hud-badge">
+      <span class="status-dot"></span>
+      <span>J.A.R.V.I.S. OS v3.5</span>
+    </div>
+    <div id="clock">00:00:00</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; align-items: center;">
+    <div class="reactor-wrapper">
+      <div class="ring ring-outer"></div>
+      <div class="ring ring-middle"></div>
+      <div class="ring ring-inner"></div>
+      <div class="core-center" id="core">STANDBY</div>
+    </div>
+
+    <div class="equalizer">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+  </div>
+
+  <div class="hud-console">
+    <div class="console-label">SYSTEM TRANSMISSION LOG</div>
+    <p id="log">가동 버튼을 눌러 자비스 홀로그램 인터페이스를 활성화하세요.</p>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn">자비스 시스템 가동</button>
+    <button id="muteBtn">마이크 일시정지</button>
+  </div>
 
   <script src="app.js"></script>
 </body>
