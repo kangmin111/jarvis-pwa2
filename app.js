@@ -8,6 +8,9 @@ const muteBtn = document.getElementById('muteBtn');
 const log = document.getElementById('log');
 const clockEl = document.getElementById('clock');
 
+// 아이폰/아이패드(iOS) 기기 감지
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 function updateClock() {
   const now = new Date();
   clockEl.innerText = now.toTimeString().split(' ')[0];
@@ -24,22 +27,23 @@ let audioCtx = null;
 let wakeLock = null;
 
 async function enableBackgroundKeepAlive() {
-  try {
-    if (!audioCtx) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new AudioContext();
-      const oscillator = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0.0001;
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.start();
-    }
-    if (audioCtx.state === 'suspended') {
-      await audioCtx.resume();
-    }
-  } catch (e) {
-    console.warn('오디오 유지 초기화 실패:', e);
+  // iOS에서는 무음 오디오가 마이크와 충돌하므로 PC/안드로이드에서만 실행
+  if (!isIOS) {
+    try {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0.0001;
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+      }
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+    } catch (e) {}
   }
 
   try {
@@ -49,44 +53,48 @@ async function enableBackgroundKeepAlive() {
         wakeLock = null;
       });
     }
-  } catch (e) {
-    console.warn('WakeLock 지원 안 됨 또는 거부됨:', e);
-  }
+  } catch (e) {}
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (isSystemActive && !isMuted) {
+  if (isSystemActive && !isMuted && !isSpeaking) {
     enableBackgroundKeepAlive();
-    try {
-      recognition.start();
-    } catch (e) {}
+    safeStartRecognition();
   }
 });
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
 recognition.lang = 'ko-KR';
-recognition.continuous = true;
+// 아이폰(iOS)은 continuous = false로 해야 안정적으로 인식됨
+recognition.continuous = !isIOS;
 recognition.interimResults = false;
 
 let isSystemActive = false;
 let isMuted = false;
 let isSpeaking = false;
-
-// ★ 최근 대화 문맥을 저장하는 배열 (최대 6개 메시지 유지)
 let chatHistory = [];
 
 function addToHistory(role, text) {
   chatHistory.push({ role, text });
   if (chatHistory.length > 6) {
-    chatHistory.shift(); // 가장 오래된 기억 1개 삭제
+    chatHistory.shift();
+  }
+}
+
+function safeStartRecognition() {
+  if (!isSystemActive || isMuted || isSpeaking) return;
+  try {
+    recognition.start();
+  } catch (e) {
+    // 이미 실행 중이면 무시
   }
 }
 
 function getNaturalVoice() {
   const voices = window.speechSynthesis.getVoices();
   return (
-    voices.find((v) => v.lang.includes('ko') && v.name.includes('Google')) ||
+    voices.find((v) => v.lang.includes('ko') && (v.name.includes('Google') || v.name.includes('Yuna'))) ||
     voices.find((v) => v.lang.includes('ko')) ||
     null
   );
@@ -97,6 +105,11 @@ window.speechSynthesis.onvoiceschanged = getNaturalVoice;
 function speak(text) {
   log.innerText = `JARVIS: ${text}`;
   window.speechSynthesis.cancel();
+
+  // 아이폰에서는 말하는 동안 마이크를 잠시 꺼야 오디오 출력이 차단되지 않음
+  if (isIOS) {
+    try { recognition.stop(); } catch (e) {}
+  }
 
   const utterance = new SpeechSynthesisUtterance(text);
   const voice = getNaturalVoice();
@@ -110,12 +123,25 @@ function speak(text) {
     isSpeaking = true;
     setHudState('speaking', 'SPEAKING');
   };
+
   utterance.onend = () => {
     isSpeaking = false;
     if (isMuted) {
       setHudState('muted', 'MUTED');
     } else {
       setHudState('listening', 'ONLINE');
+      // 말이 끝나면 아이폰에서도 다시 마이크 자동 시작
+      if (isIOS) {
+        setTimeout(safeStartRecognition, 300);
+      }
+    }
+  };
+
+  utterance.onerror = () => {
+    isSpeaking = false;
+    if (!isMuted) {
+      setHudState('listening', 'ONLINE');
+      if (isIOS) setTimeout(safeStartRecognition, 300);
     }
   };
 
@@ -123,7 +149,6 @@ function speak(text) {
 }
 
 function handleInstantCommand(command) {
-  // 대화 기억 초기화 명령
   if (command.includes('기억 지워') || command.includes('대화 초기화') || command.includes('기억 초기화')) {
     chatHistory = [];
     speak('네, 방금까지 나눈 대화 기억을 깨끗하게 비웠어요.');
@@ -175,7 +200,6 @@ async function askJarvisBrain(userCommand) {
     const response = await fetch('/.netlify/functions/jarvis', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // ★ 현재 명령과 함께 이전 대화 기록(chatHistory)을 서버로 전송
       body: JSON.stringify({ userCommand, chatHistory })
     });
 
@@ -185,7 +209,6 @@ async function askJarvisBrain(userCommand) {
       throw new Error(data.error || `서버 오류 (${response.status})`);
     }
 
-    // ★ 대화가 성공하면 이번 질문과 자비스의 대답도 기억에 추가
     addToHistory('user', userCommand);
     addToHistory('jarvis', data.reply);
 
@@ -230,19 +253,20 @@ recognition.onresult = (event) => {
 };
 
 recognition.onend = () => {
-  if (isSystemActive && !isMuted) {
-    setTimeout(() => {
-      try {
-        recognition.start();
-      } catch (e) {}
-    }, 300);
+  if (isSystemActive && !isMuted && !isSpeaking) {
+    setTimeout(safeStartRecognition, 300);
   }
 };
 
 startBtn.addEventListener('click', () => {
   isSystemActive = true;
   enableBackgroundKeepAlive();
-  recognition.start();
+
+  // ★ 아이폰 음성 합성 잠금 해제 (터치 순간 빈 오디오 1회 실행)
+  const unlockUtterance = new SpeechSynthesisUtterance('');
+  window.speechSynthesis.speak(unlockUtterance);
+
+  safeStartRecognition();
   startBtn.style.display = 'none';
   muteBtn.style.display = 'inline-block';
   setHudState('listening', 'ONLINE');
@@ -252,13 +276,13 @@ startBtn.addEventListener('click', () => {
 muteBtn.addEventListener('click', () => {
   isMuted = !isMuted;
   if (isMuted) {
-    recognition.stop();
+    try { recognition.stop(); } catch (e) {}
     muteBtn.innerText = '마이크 다시 켜기';
     setHudState('muted', 'MUTED');
     log.innerText = 'JARVIS: 마이크가 일시정지되었습니다.';
   } else {
     enableBackgroundKeepAlive();
-    recognition.start();
+    safeStartRecognition();
     muteBtn.innerText = '마이크 일시정지';
     setHudState('listening', 'ONLINE');
     log.innerText = 'JARVIS: 다시 듣고 있습니다. 말씀해 주세요.';
