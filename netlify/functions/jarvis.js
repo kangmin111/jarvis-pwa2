@@ -34,13 +34,12 @@ exports.handler = async function (event) {
     // 1순위 모델이 혼잡할 경우 자동으로 2, 3순위 예비 모델로 전환
     const models = [
       'gemini-3.8-flash',
-      'gemini-3.8-flash-lite',
-      'gemini-2.5-flash-lite'
+      'gemini-3.5-flash-lite
     ];
 
     let lastError = 'Google API 호출 실패';
 
-    for (const model of models) {
+    for (const model of ) {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
