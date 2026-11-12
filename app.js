@@ -13,12 +13,10 @@ recognition.continuous = true;
 recognition.interimResults = false;
 
 let isSystemActive = false;
-let isSpeaking = false; // 자비스가 말하는 중에는 자기 목소리 듣지 않기
+let isSpeaking = false;
 
-// 자연스러운 한국어 목소리 찾기
 function getNaturalVoice() {
   const voices = window.speechSynthesis.getVoices();
-  // Google 한국어 또는 자연스러운 여성/남성 음성 우선 선택
   return (
     voices.find((v) => v.lang.includes('ko') && v.name.includes('Google')) ||
     voices.find((v) => v.lang.includes('ko')) ||
@@ -30,15 +28,15 @@ window.speechSynthesis.onvoiceschanged = getNaturalVoice;
 
 function speak(text) {
   log.innerText = `JARVIS: ${text}`;
-  window.speechSynthesis.cancel(); // 이전 말이 남아있으면 끊고 새로 말하기
+  window.speechSynthesis.cancel();
 
   const utterance = new SpeechSynthesisUtterance(text);
   const voice = getNaturalVoice();
   if (voice) utterance.voice = voice;
 
   utterance.lang = 'ko-KR';
-  utterance.rate = 1.02;  // 너무 빠르거나 느리지 않은 자연스러운 속도
-  utterance.pitch = 1.0;  // 자연스러운 음높이
+  utterance.rate = 1.02;
+  utterance.pitch = 1.0;
 
   utterance.onstart = () => {
     isSpeaking = true;
@@ -85,29 +83,26 @@ async function askJarvisBrain(userCommand) {
   }
 }
 
+// "자비스" 호출어 없이 말하면 바로 실행
 recognition.onresult = (event) => {
-  // 자비스 본인이 말하고 있을 때는 마이크 입력 무시
   if (isSpeaking) return;
 
   const lastIndex = event.results.length - 1;
   const transcript = event.results[lastIndex][0].transcript.trim();
   console.log('인식된 음성:', transcript);
 
-  // "자비스" 또는 띄어쓰기 오인식("자 비스") 모두 감지
-  const wakeRegex = /자\s*비스/;
-  if (wakeRegex.test(transcript)) {
-    const command = transcript.split(wakeRegex)[1].trim();
-    if (command.length === 0) {
-      const greetings = [
-        '네, 부르셨어요?',
-        '네, 말씀하세요. 듣고 있어요.',
-        '네, 무슨 일이신가요?'
-      ];
-      const randomReply = greetings[Math.floor(Math.random() * greetings.length)];
-      speak(randomReply);
-    } else {
-      askJarvisBrain(command);
-    }
+  // 습관적으로 "자비스"라고 먼저 불렀을 경우 앞부분만 깔끔하게 정리
+  const cleanCommand = transcript.replace(/^자\s*비스[,\s]*/, '').trim();
+
+  if (cleanCommand.length === 0) {
+    const greetings = [
+      '네, 부르셨어요?',
+      '네, 말씀하세요. 듣고 있어요.',
+      '네, 무슨 일이신가요?'
+    ];
+    speak(greetings[Math.floor(Math.random() * greetings.length)]);
+  } else {
+    askJarvisBrain(cleanCommand);
   }
 };
 
@@ -123,5 +118,5 @@ startBtn.addEventListener('click', () => {
   startBtn.style.display = 'none';
   core.innerText = 'ONLINE';
   core.classList.add('listening');
-  speak('자비스 시스템이 준비됐어요. 편하게 말씀해 주세요.');
+  speak('자비스 시스템이 준비됐어요. 이제 부르지 않고 바로 말씀하셔도 됩니다.');
 });
