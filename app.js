@@ -5,10 +5,12 @@ if ('serviceWorker' in navigator) {
 const core = document.getElementById('core');
 const startBtn = document.getElementById('startBtn');
 const muteBtn = document.getElementById('muteBtn');
+const silentModeBtn = document.getElementById('silentModeBtn');
+const chatForm = document.getElementById('chatForm');
+const textInput = document.getElementById('textInput');
 const log = document.getElementById('log');
 const clockEl = document.getElementById('clock');
 
-// 아이폰/아이패드(iOS) 기기 감지
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 function updateClock() {
@@ -27,7 +29,6 @@ let audioCtx = null;
 let wakeLock = null;
 
 async function enableBackgroundKeepAlive() {
-  // iOS에서는 무음 오디오가 마이크와 충돌하므로 PC/안드로이드에서만 실행
   if (!isIOS) {
     try {
       if (!audioCtx) {
@@ -66,13 +67,13 @@ document.addEventListener('visibilitychange', () => {
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
 recognition.lang = 'ko-KR';
-// 아이폰(iOS)은 continuous = false로 해야 안정적으로 인식됨
 recognition.continuous = !isIOS;
 recognition.interimResults = false;
 
 let isSystemActive = false;
 let isMuted = false;
 let isSpeaking = false;
+let isSilentOutput = false; // ★ 조용한 채팅(무음 출력) 모드 상태
 let chatHistory = [];
 
 function addToHistory(role, text) {
@@ -86,17 +87,13 @@ function safeStartRecognition() {
   if (!isSystemActive || isMuted || isSpeaking) return;
   try {
     recognition.start();
-  } catch (e) {
-    // 이미 실행 중이면 무시
-  }
+  } catch (e) {}
 }
 
 function getNaturalVoice() {
   const voices = window.speechSynthesis.getVoices();
   return (
-    // 1순위: 한국어 중 남성(Male, Kyongho, 남성) 목소리 찾기
-    voices.find((v) => v.lang.includes('ko') && (v.name.toLowerCase().includes('male') || v.name.includes('Kyongho') || v.name.includes('남성'))) ||
-    // 2순위: 남성 목소리가 없다면 일반 한국어 목소리
+    voices.find((v) => v.lang.includes('ko') && (v.name.includes('Google') || v.name.includes('Yuna'))) ||
     voices.find((v) => v.lang.includes('ko')) ||
     null
   );
@@ -108,7 +105,16 @@ function speak(text) {
   log.innerText = `JARVIS: ${text}`;
   window.speechSynthesis.cancel();
 
-  // 아이폰에서는 말하는 동안 마이크를 잠시 꺼야 오디오 출력이 차단되지 않음
+  // ★ 무음 출력 모드이거나 음성 시스템을 켜지 않은 상태면 소리 없이 텍스트만 표시
+  if (isSilentOutput || !isSystemActive) {
+    if (!isSystemActive) {
+      setHudState('primary', 'TEXT MODE');
+    } else {
+      setHudState(isMuted ? 'muted' : 'listening', isMuted ? 'SILENT' : 'ONLINE');
+    }
+    return;
+  }
+
   if (isIOS) {
     try { recognition.stop(); } catch (e) {}
   }
@@ -119,7 +125,7 @@ function speak(text) {
 
   utterance.lang = 'ko-KR';
   utterance.rate = 1.02;
-  utterance.pitch = 0.5;
+  utterance.pitch = 1.0;
 
   utterance.onstart = () => {
     isSpeaking = true;
@@ -132,7 +138,6 @@ function speak(text) {
       setHudState('muted', 'MUTED');
     } else {
       setHudState('listening', 'ONLINE');
-      // 말이 끝나면 아이폰에서도 다시 마이크 자동 시작
       if (isIOS) {
         setTimeout(safeStartRecognition, 300);
       }
@@ -196,7 +201,7 @@ async function askJarvisBrain(userCommand) {
   if (handleInstantCommand(userCommand)) return;
 
   setHudState('thinking', 'THINKING');
-  log.innerText = `명령 분석 중: "${userCommand}"`;
+  log.innerText = `분석 중: "${userCommand}"`;
 
   try {
     const response = await fetch('/.netlify/functions/jarvis', {
@@ -221,19 +226,43 @@ async function askJarvisBrain(userCommand) {
     }
   } catch (error) {
     console.error('상세 오류:', error);
-    if (error.message.includes('high demand')) {
-      log.innerText = '구글 AI 서버 일시 혼잡 - 잠시 후 다시 말씀해 주세요.';
-      speak('지금 구글 AI 서버에 접속자가 너무 많아서 잠깐 막혔어요. 몇 초 뒤에 다시 말씀해 주실래요?');
-    } else {
-      log.innerText = `오류 원인: ${error.message}`;
-      speak(`오류가 발생했어요. ${error.message}`);
-    }
+    log.innerText = `오류 원인: ${error.message}`;
+    speak(`오류가 발생했어요. ${error.message}`);
   } finally {
     if (!isSpeaking) {
-      setHudState(isMuted ? 'muted' : 'listening', isMuted ? 'MUTED' : 'ONLINE');
+      if (!isSystemActive) {
+        setHudState('primary', 'TEXT MODE');
+      } else {
+        setHudState(isMuted ? 'muted' : 'listening', isMuted ? 'SILENT' : 'ONLINE');
+      }
     }
   }
 }
+
+// ★ 조용한 채팅 입력창 전송 이벤트
+chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const typedCommand = textInput.value.trim();
+  if (!typedCommand) return;
+
+  textInput.value = '';
+  askJarvisBrain(typedCommand);
+});
+
+// ★ 무음 출력 토글 버튼
+silentModeBtn.addEventListener('click', () => {
+  isSilentOutput = !isSilentOutput;
+  if (isSilentOutput) {
+    window.speechSynthesis.cancel();
+    silentModeBtn.innerText = '무음 출력: ON';
+    silentModeBtn.classList.add('active-silent');
+    log.innerText = 'JARVIS: 조용한 모드가 켜졌습니다. 이제 소리 없이 화면으로만 대답할게요.';
+  } else {
+    silentModeBtn.innerText = '무음 출력: OFF';
+    silentModeBtn.classList.remove('active-silent');
+    log.innerText = 'JARVIS: 음성 출력이 다시 켜졌습니다.';
+  }
+});
 
 recognition.onresult = (event) => {
   if (isSpeaking || isMuted) return;
@@ -264,7 +293,6 @@ startBtn.addEventListener('click', () => {
   isSystemActive = true;
   enableBackgroundKeepAlive();
 
-  // ★ 아이폰 음성 합성 잠금 해제 (터치 순간 빈 오디오 1회 실행)
   const unlockUtterance = new SpeechSynthesisUtterance('');
   window.speechSynthesis.speak(unlockUtterance);
 
@@ -272,7 +300,7 @@ startBtn.addEventListener('click', () => {
   startBtn.style.display = 'none';
   muteBtn.style.display = 'inline-block';
   setHudState('listening', 'ONLINE');
-  speak('자비스 시스템이 준비되었습니다. 이제 이전 대화도 기억하면서 대답할게요.');
+  speak('자비스 시스템이 준비되었습니다.');
 });
 
 muteBtn.addEventListener('click', () => {
@@ -290,3 +318,10 @@ muteBtn.addEventListener('click', () => {
     log.innerText = 'JARVIS: 다시 듣고 있습니다. 말씀해 주세요.';
   }
 });
+
+// 주소창에 ?auto=1이 붙어서 열리면 즉시 시스템 가동
+if (new URLSearchParams(window.location.search).get('auto') === '1') {
+  window.addEventListener('load', () => {
+    setTimeout(() => startBtn.click(), 500);
+  });
+}
