@@ -119,7 +119,7 @@ function speak(text) {
 
   utterance.lang = 'ko-KR';
   utterance.rate = 1.02;
-  utterance.pitch = 1.0;
+  utterance.pitch = 0.5;
 
   utterance.onstart = () => {
     isSpeaking = true;
