@@ -35,13 +35,12 @@
       background-size: 100% 100%, 40px 40px, 40px 40px;
       color: var(--current-color);
       font-family: 'Noto Sans KR', sans-serif;
-      height: 100vh;
-      overflow: hidden;
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       align-items: center;
-      padding: 24px;
+      padding: 20px;
       transition: color 0.4s ease;
     }
 
@@ -77,12 +76,12 @@
     /* 중앙 아크 리액터 코어 */
     .reactor-wrapper {
       position: relative;
-      width: 260px;
-      height: 260px;
+      width: 220px;
+      height: 220px;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: 10px 0;
+      margin: 8px 0;
     }
 
     .ring {
@@ -93,8 +92,8 @@
     }
 
     .ring-outer {
-      width: 250px;
-      height: 250px;
+      width: 210px;
+      height: 210px;
       border-top: 3px solid var(--current-color);
       border-bottom: 3px solid var(--current-color);
       border-left: 1px dashed rgba(0, 229, 255, 0.3);
@@ -103,8 +102,8 @@
     }
 
     .ring-middle {
-      width: 205px;
-      height: 205px;
+      width: 172px;
+      height: 172px;
       border-left: 4px solid var(--current-color);
       border-right: 4px solid var(--current-color);
       opacity: 0.8;
@@ -112,15 +111,15 @@
     }
 
     .ring-inner {
-      width: 165px;
-      height: 165px;
+      width: 138px;
+      height: 138px;
       border: 2px dotted var(--current-color);
       animation: spinRight 20s linear infinite;
     }
 
     .core-center {
-      width: 130px;
-      height: 130px;
+      width: 110px;
+      height: 110px;
       border-radius: 50%;
       background: radial-gradient(circle, rgba(0, 229, 255, 0.25) 0%, rgba(5, 10, 20, 0.9) 75%);
       border: 2px solid var(--current-color);
@@ -131,8 +130,8 @@
       justify-content: center;
       font-family: 'Orbitron', sans-serif;
       font-weight: 700;
-      font-size: 0.95rem;
-      letter-spacing: 2px;
+      font-size: 0.85rem;
+      letter-spacing: 1.5px;
       z-index: 2;
       transition: all 0.3s ease;
     }
@@ -153,13 +152,13 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      height: 36px;
-      margin-top: 12px;
+      height: 28px;
+      margin-top: 8px;
     }
 
     .bar {
       width: 4px;
-      height: 8px;
+      height: 6px;
       background: var(--current-color);
       border-radius: 2px;
       box-shadow: 0 0 8px var(--current-color);
@@ -177,18 +176,27 @@
     .bar:nth-child(6) { animation-delay: 0.35s; }
     .bar:nth-child(7) { animation-delay: 0.2s; }
 
-    /* 대화 로그 박스 */
-    .hud-console {
+    /* 대화 로그 및 조용한 채팅 영역 */
+    .hud-console-wrapper {
       width: 100%;
       max-width: 680px;
-      background: rgba(8, 18, 36, 0.75);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .hud-console {
+      width: 100%;
+      background: rgba(8, 18, 36, 0.78);
       border: 1px solid rgba(0, 229, 255, 0.3);
       border-left: 4px solid var(--current-color);
       border-radius: 6px;
-      padding: 18px 22px;
+      padding: 16px 20px;
       backdrop-filter: blur(8px);
       box-shadow: 0 0 25px rgba(0, 0, 0, 0.6);
       text-align: left;
+      max-height: 180px;
+      overflow-y: auto;
     }
 
     .console-label {
@@ -201,25 +209,56 @@
 
     #log {
       color: #e0f7ff;
-      font-size: 1.05rem;
+      font-size: 1.02rem;
       line-height: 1.6;
       word-break: keep-all;
+    }
+
+    /* 조용한 텍스트 채팅 입력 바 */
+    .chat-input-box {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+
+    #textInput {
+      flex: 1;
+      background: rgba(8, 18, 36, 0.85);
+      border: 1.5px solid rgba(0, 229, 255, 0.4);
+      border-radius: 4px;
+      padding: 12px 14px;
+      color: #e0f7ff;
+      font-family: 'Noto Sans KR', sans-serif;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.25s ease;
+    }
+
+    #textInput:focus {
+      border-color: var(--current-color);
+      box-shadow: 0 0 12px rgba(0, 229, 255, 0.25);
+    }
+
+    #textInput::placeholder {
+      color: rgba(224, 247, 255, 0.45);
     }
 
     /* 하단 컨트롤 버튼 */
     .controls {
       display: flex;
-      gap: 14px;
-      margin-bottom: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 8px;
     }
 
     button {
       background: rgba(0, 229, 255, 0.08);
       color: var(--current-color);
       border: 1.5px solid var(--current-color);
-      padding: 12px 26px;
+      padding: 11px 20px;
       font-family: 'Noto Sans KR', sans-serif;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 700;
       letter-spacing: 0.5px;
       cursor: pointer;
@@ -232,6 +271,12 @@
       background: var(--current-color);
       color: #050a14;
       box-shadow: 0 0 25px var(--current-color);
+    }
+
+    button.active-silent {
+      background: rgba(255, 174, 0, 0.2);
+      border-color: #ffae00;
+      color: #ffae00;
     }
 
     #muteBtn {
@@ -249,8 +294,8 @@
       50% { opacity: 0.3; }
     }
     @keyframes wave {
-      0%, 100% { height: 8px; }
-      50% { height: 32px; }
+      0%, 100% { height: 6px; }
+      50% { height: 26px; }
     }
   </style>
 </head>
@@ -283,14 +328,22 @@
     </div>
   </div>
 
-  <div class="hud-console">
-    <div class="console-label">SYSTEM TRANSMISSION LOG</div>
-    <p id="log">가동 버튼을 눌러 자비스 홀로그램 인터페이스를 활성화하세요.</p>
+  <div class="hud-console-wrapper">
+    <div class="hud-console">
+      <div class="console-label">SYSTEM TRANSMISSION LOG</div>
+      <p id="log">가동 버튼을 누르거나 아래 입력창에 조용히 메시지를 입력하세요.</p>
+    </div>
+
+    <form class="chat-input-box" id="chatForm">
+      <input type="text" id="textInput" placeholder="조용한 채팅 모드: 여기에 질문이나 명령을 입력..." autocomplete="off" />
+      <button type="submit" id="sendBtn">전송</button>
+    </form>
   </div>
 
   <div class="controls">
-    <button id="startBtn">자비스 시스템 가동</button>
+    <button id="startBtn">음성 시스템 가동</button>
     <button id="muteBtn">마이크 일시정지</button>
+    <button id="silentModeBtn">무음 출력: OFF</button>
   </div>
 
   <script src="app.js"></script>
