@@ -73,8 +73,9 @@ recognition.interimResults = false;
 let isSystemActive = false;
 let isMuted = false;
 let isSpeaking = false;
-let isSilentOutput = false; // ★ 조용한 채팅(무음 출력) 모드 상태
+let isSilentOutput = false;
 let chatHistory = [];
+let currentAudio = null; // 현재 재생 중인 릴스 TTS 오디오 객체
 
 function addToHistory(role, text) {
   chatHistory.push({ role, text });
@@ -90,28 +91,56 @@ function safeStartRecognition() {
   } catch (e) {}
 }
 
-function getNaturalVoice() {
-  const voices = window.speechSynthesis.getVoices();
-  return (
-    voices.find((v) => v.lang.includes('ko') && (v.name.includes('Google') || v.name.includes('Yuna'))) ||
-    voices.find((v) => v.lang.includes('ko')) ||
-    null
-  );
+function finishSpeaking() {
+  isSpeaking = false;
+  if (!isSystemActive) {
+    setHudState('primary', 'TEXT MODE');
+  } else if (isMuted) {
+    setHudState('muted', 'MUTED');
+  } else {
+    setHudState('listening', 'ONLINE');
+    if (isIOS) {
+      setTimeout(safeStartRecognition, 300);
+    }
+  }
 }
 
-window.speechSynthesis.onvoiceschanged = getNaturalVoice;
+// 네트워크 지연 시 백업으로 작동하는 브라우저 내장 하이톤 음성
+function fallbackBrowserSpeak(text) {
+  const voices = window.speechSynthesis.getVoices();
+  const voice =
+    voices.find((v) => v.lang.includes('ko') && (v.name.includes('SunHi') || v.name.includes('선희'))) ||
+    voices.find((v) => v.lang.includes('ko') && v.name.includes('Google')) ||
+    voices.find((v) => v.lang.includes('ko')) ||
+    null;
 
-function speak(text) {
+  const utterance = new SpeechSynthesisUtterance(text);
+  if (voice) utterance.voice = voice;
+  utterance.lang = 'ko-KR';
+  utterance.rate = 1.2;
+  utterance.pitch = 1.25;
+
+  utterance.onstart = () => {
+    isSpeaking = true;
+    setHudState('speaking', 'SPEAKING');
+  };
+  utterance.onend = finishSpeaking;
+  utterance.onerror = finishSpeaking;
+
+  window.speechSynthesis.speak(utterance);
+}
+
+// ★ 릴스/틱톡 성우 AI 음성(ko-KR-SunHiNeural) 재생 함수
+async function speak(text) {
   log.innerText = `JARVIS: ${text}`;
   window.speechSynthesis.cancel();
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
 
-  // ★ 무음 출력 모드이거나 음성 시스템을 켜지 않은 상태면 소리 없이 텍스트만 표시
   if (isSilentOutput || !isSystemActive) {
-    if (!isSystemActive) {
-      setHudState('primary', 'TEXT MODE');
-    } else {
-      setHudState(isMuted ? 'muted' : 'listening', isMuted ? 'SILENT' : 'ONLINE');
-    }
+    finishSpeaking();
     return;
   }
 
@@ -119,46 +148,37 @@ function speak(text) {
     try { recognition.stop(); } catch (e) {}
   }
 
-  const utterance = new SpeechSynthesisUtterance(text);
-  const voice = getNaturalVoice();
-  if (voice) utterance.voice = voice;
+  isSpeaking = true;
+  setHudState('speaking', 'SPEAKING');
 
-  utterance.lang = 'ko-KR';
-  utterance.rate = 1.02;
-  utterance.pitch = 1.0;
+  try {
+    const response = await fetch('/.netlify/functions/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
 
-  utterance.onstart = () => {
-    isSpeaking = true;
-    setHudState('speaking', 'SPEAKING');
-  };
+    if (!response.ok) throw new Error('TTS 서버 호출 실패');
+    const data = await response.json();
+    if (!data.audioBase64) throw new Error('오디오 데이터 없음');
 
-  utterance.onend = () => {
-    isSpeaking = false;
-    if (isMuted) {
-      setHudState('muted', 'MUTED');
-    } else {
-      setHudState('listening', 'ONLINE');
-      if (isIOS) {
-        setTimeout(safeStartRecognition, 300);
-      }
-    }
-  };
+    currentAudio = new Audio(`data:audio/mp3;base64,${data.audioBase64}`);
+    currentAudio.onended = finishSpeaking;
+    currentAudio.onerror = () => {
+      fallbackBrowserSpeak(text);
+    };
 
-  utterance.onerror = () => {
-    isSpeaking = false;
-    if (!isMuted) {
-      setHudState('listening', 'ONLINE');
-      if (isIOS) setTimeout(safeStartRecognition, 300);
-    }
-  };
-
-  window.speechSynthesis.speak(utterance);
+    await currentAudio.play();
+  } catch (err) {
+    console.warn('클라우드 TTS 백업 전환:', err);
+    fallbackBrowserSpeak(text);
+  }
 }
 
 function handleInstantCommand(command) {
   if (command.includes('기억 지워') || command.includes('대화 초기화') || command.includes('기억 초기화')) {
     chatHistory = [];
-    speak('네, 방금까지 나눈 대화 기억을 깨끗하게 비웠어요.');
+    speak('네, 방금까지 나눈 대화 기억을 깨끗하게 비웠어요!');
     return true;
   }
 
@@ -171,7 +191,7 @@ function handleInstantCommand(command) {
     return true;
   }
   if (command.includes('지메일') || command.includes('메일')) {
-    const reply = '네, 지메일 확인하실 수 있게 열어드렸어요.';
+    const reply = '네, 지메일 확인하실 수 있게 열어드렸어요!';
     addToHistory('user', command);
     addToHistory('jarvis', reply);
     speak(reply);
@@ -179,7 +199,7 @@ function handleInstantCommand(command) {
     return true;
   }
   if (command.includes('네이버') && !command.includes('검색') && !command.includes('찾아')) {
-    const reply = '네이버 화면 띄워드렸습니다.';
+    const reply = '네이버 화면 바로 띄워드렸습니다!';
     addToHistory('user', command);
     addToHistory('jarvis', reply);
     speak(reply);
@@ -187,7 +207,7 @@ function handleInstantCommand(command) {
     return true;
   }
   if (command.includes('구글') && !command.includes('검색') && !command.includes('찾아')) {
-    const reply = '구글 페이지 열어드렸어요.';
+    const reply = '구글 페이지 열어드렸어요!';
     addToHistory('user', command);
     addToHistory('jarvis', reply);
     speak(reply);
@@ -230,16 +250,11 @@ async function askJarvisBrain(userCommand) {
     speak(`오류가 발생했어요. ${error.message}`);
   } finally {
     if (!isSpeaking) {
-      if (!isSystemActive) {
-        setHudState('primary', 'TEXT MODE');
-      } else {
-        setHudState(isMuted ? 'muted' : 'listening', isMuted ? 'SILENT' : 'ONLINE');
-      }
+      finishSpeaking();
     }
   }
 }
 
-// ★ 조용한 채팅 입력창 전송 이벤트
 chatForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const typedCommand = textInput.value.trim();
@@ -249,11 +264,14 @@ chatForm.addEventListener('submit', (e) => {
   askJarvisBrain(typedCommand);
 });
 
-// ★ 무음 출력 토글 버튼
 silentModeBtn.addEventListener('click', () => {
   isSilentOutput = !isSilentOutput;
   if (isSilentOutput) {
     window.speechSynthesis.cancel();
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
     silentModeBtn.innerText = '무음 출력: ON';
     silentModeBtn.classList.add('active-silent');
     log.innerText = 'JARVIS: 조용한 모드가 켜졌습니다. 이제 소리 없이 화면으로만 대답할게요.';
@@ -274,7 +292,7 @@ recognition.onresult = (event) => {
   if (cleanCommand.length === 0) {
     const greetings = [
       '네, 부르셨어요?',
-      '네, 말씀하세요. 듣고 있어요.',
+      '네, 말씀하세요! 듣고 있어요.',
       '네, 무슨 일이신가요?'
     ];
     speak(greetings[Math.floor(Math.random() * greetings.length)]);
@@ -293,14 +311,15 @@ startBtn.addEventListener('click', () => {
   isSystemActive = true;
   enableBackgroundKeepAlive();
 
-  const unlockUtterance = new SpeechSynthesisUtterance('');
-  window.speechSynthesis.speak(unlockUtterance);
+  // iOS/크롬 모바일 오디오 자동재생 잠금 해제
+  const silentUnlock = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+  silentUnlock.play().catch(() => {});
 
   safeStartRecognition();
   startBtn.style.display = 'none';
   muteBtn.style.display = 'inline-block';
   setHudState('listening', 'ONLINE');
-  speak('자비스 시스템이 준비되었습니다.');
+  speak('자비스 시스템이 준비되었습니다!');
 });
 
 muteBtn.addEventListener('click', () => {
@@ -319,7 +338,6 @@ muteBtn.addEventListener('click', () => {
   }
 });
 
-// 주소창에 ?auto=1이 붙어서 열리면 즉시 시스템 가동
 if (new URLSearchParams(window.location.search).get('auto') === '1') {
   window.addEventListener('load', () => {
     setTimeout(() => startBtn.click(), 500);
