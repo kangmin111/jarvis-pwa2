@@ -94,7 +94,9 @@ function safeStartRecognition() {
 function getNaturalVoice() {
   const voices = window.speechSynthesis.getVoices();
   return (
-    voices.find((v) => v.lang.includes('ko') && (v.name.includes('Google') || v.name.includes('Yuna'))) ||
+    // 1순위: 한국어 중 남성(Male, Kyongho, 남성) 목소리 찾기
+    voices.find((v) => v.lang.includes('ko') && (v.name.toLowerCase().includes('male') || v.name.includes('Kyongho') || v.name.includes('남성'))) ||
+    // 2순위: 남성 목소리가 없다면 일반 한국어 목소리
     voices.find((v) => v.lang.includes('ko')) ||
     null
   );
